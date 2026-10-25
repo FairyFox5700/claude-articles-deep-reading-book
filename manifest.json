@@ -1,0 +1,46 @@
+{
+  "title": "The Claude Articles Deep-Reading Book",
+  "source": "https://claude.com/resources/articles",
+  "catalog_listings": 293,
+  "unique_source_urls": 292,
+  "total_summary_words": 318567,
+  "median_words_per_article": 1192,
+  "files": {
+    "index.html": {
+      "bytes": 2652872,
+      "sha256": "f57946aee918bbcfc8266d33421834938472c5143f6faa7a393d3604a6f11d2c"
+    },
+    "README.md": {
+      "bytes": 3194,
+      "sha256": "75422ecd6aa7f5ed9e94e3e587ff63b9a4aea63e9169b705e1005baad372538b"
+    },
+    "LICENSE": {
+      "bytes": 1229,
+      "sha256": "ee9cbb183fccf494a56455999f2f99ffcb983430488e08e83c356006d64abd65"
+    },
+    ".gitignore": {
+      "bytes": 218,
+      "sha256": "4073ef07ee3afe6ec73a29525adf7169387d6f7fcd17acfd0dd535aff5a0c4cf"
+    },
+    "data/claude_articles_deep_summaries.json": {
+      "bytes": 2939315,
+      "sha256": "23b09d16a809bda9e18f849fd0eb29fe61160ed1b5d4e76792f047aee6479ad1"
+    },
+    "data/claude_articles_deep_index.csv": {
+      "bytes": 61588,
+      "sha256": "17fcf9f47eb5a763d38595bd799d172d4879f8fdba2a9501bf9d0ed086e320f8"
+    },
+    "scripts/build_index.py": {
+      "bytes": 3592,
+      "sha256": "06c51bb1b75bc4d52375e9f1271b78ff008f51b63ff4aad6286781b14126fed4"
+    },
+    "scripts/validate.py": {
+      "bytes": 2908,
+      "sha256": "f63bafb18bc4ff33c1292ae6e9f2dbecc08f484ea8049255438c5ccf4085a15f"
+    },
+    "scripts/update_manifest.py": {
+      "bytes": 1230,
+      "sha256": "b0dd16ee02d1442210a16421bf910513d95937e89c433b05cbe16ad334198116"
+    }
+  }
+}

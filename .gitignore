@@ -1,0 +1,13 @@
+# Local and generated diagnostics
+__pycache__/
+*.pyc
+*.log
+*.png
+.DS_Store
+Thumbs.db
+
+# Source extraction and intermediate batches are intentionally private
+article_bodies.jsonl
+source_batches/
+deep_batches/
+chrome-*/
