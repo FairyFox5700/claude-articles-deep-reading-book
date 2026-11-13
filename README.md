@@ -12,6 +12,7 @@ A self-contained, interactive study guide for the complete [Claude articles cata
 - Core concepts and why they matter
 - Specific evidence, examples, implementation playbooks, cautions, and glossaries
 - Search, chapter/year/progress filters, full-detail and overview-only modes
+- Built-in browser voice narration for every lesson, with pause, stop, and speed controls
 - Browser-local reading progress, responsive layouts, dark mode, and print support
 
 ## Read online
