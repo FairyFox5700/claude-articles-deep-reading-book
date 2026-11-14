@@ -43,10 +43,13 @@ def build_mindmap_index():
             for c in (rec.get("core_concepts") or [])[:6]
         ]
         sections = [trim(s.get("heading"), 60) for s in (rec.get("section_digest") or [])][:8]
+        playbook = [trim(p, 130) for p in (rec.get("practical_playbook") or [])][:3]
         idx[rec["url"].strip()] = {
             "concepts": concepts,
             "sections": sections,
             "bottom_line": trim(rec.get("bottom_line"), 240),
+            "overview": trim(rec.get("overview"), 320),
+            "playbook": playbook,
         }
     return idx
 
@@ -225,7 +228,7 @@ def main():
         title, date, chapter, category = r["title"], r["date"], r["chapter"], r["category"]
         sc = score_article(title, chapter, category, date)
         url = r["url"].strip()
-        mm = mindmap_idx.get(url, {"concepts": [], "sections": [], "bottom_line": ""})
+        mm = mindmap_idx.get(url, {"concepts": [], "sections": [], "bottom_line": "", "overview": "", "playbook": []})
         out_rows.append({
             "title": title.strip(), "date": date, "chapter": chapter,
             "category": category, "deep_words": r["deep_words"],
@@ -250,6 +253,8 @@ def main():
             "concepts": [{"name": trim(c, 55), "definition": "", "why": ""} for c in clauses[:5]],
             "sections": [],
             "bottom_line": summary,
+            "overview": summary,
+            "playbook": [],
         }
         out_rows.append({
             "title": title, "date": "2026-11 (new)", "chapter": chapter,
@@ -353,6 +358,12 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   .detail-panel .why{color:var(--muted);font-size:12px;}
   .bottom-line{margin-top:14px;font-size:12px;color:var(--muted);border-top:1px solid var(--border);padding-top:10px;}
   .bottom-line b{color:var(--text);}
+  .plain-box{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px;}
+  .plain-card{background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;}
+  .plain-card h5{margin:0 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--accent);}
+  .plain-card p{margin:0;font-size:12.5px;color:var(--text);line-height:1.4;}
+  .plain-card ul{margin:0;padding-left:16px;font-size:12.5px;color:var(--text);line-height:1.5;}
+  @media (max-width: 720px){ .plain-box{grid-template-columns:1fr;} }
 </style>
 </head>
 <body>
@@ -393,6 +404,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <span class="close-x" id="mapClose">&times;</span>
     <h2 id="mapTitle"></h2>
     <div class="modal-sub" id="mapSub"></div>
+    <div class="plain-box" id="mapPlain"></div>
     <div id="mapSvgWrap"></div>
     <div class="detail-panel" id="mapDetail">Click a concept bubble to see what it means.</div>
     <div class="bottom-line" id="mapBottomLine"></div>
@@ -468,8 +480,18 @@ overlay.addEventListener('click', e=>{ if(e.target === overlay) overlay.classLis
 function openMindMap(d){
   document.getElementById('mapTitle').textContent = (d.is_new?'[NEW] ':'') + d.title;
   document.getElementById('mapSub').textContent = (d.chapter||'') + (d.category?' · '+d.category:'') + ' · ' + d.date;
-  document.getElementById('mapBottomLine').innerHTML = d.mindmap && d.mindmap.bottom_line
-    ? '<b>Bottom line:</b> ' + escapeHtml(d.mindmap.bottom_line) : '';
+  const mm = d.mindmap || {};
+  const whatAbout = mm.overview || d.summary || '';
+  const whyMatters = mm.bottom_line || '';
+  const whereApply = mm.playbook && mm.playbook.length
+    ? '<ul>' + mm.playbook.map(p=>`<li>${escapeHtml(p)}</li>`).join('') + '</ul>'
+    : '<p style="color:var(--muted)">No specific action steps captured yet — use the concepts below as a starting point.</p>';
+  document.getElementById('mapPlain').innerHTML = `
+    <div class="plain-card"><h5>What it's about</h5><p>${escapeHtml(whatAbout) || '—'}</p></div>
+    <div class="plain-card"><h5>Why it matters</h5><p>${escapeHtml(whyMatters) || '—'}</p></div>
+    <div class="plain-card"><h5>Where to apply it</h5>${whereApply}</div>
+  `;
+  document.getElementById('mapBottomLine').innerHTML = '';
   document.getElementById('mapDetail').textContent = 'Click a concept bubble to see what it means.';
   renderMindMapSvg(d);
   overlay.classList.add('open');
