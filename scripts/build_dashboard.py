@@ -18,8 +18,37 @@ import urllib.error
 
 ROOT = r"C:\Users\ityshchenko\Documents\claude-articles-deep-reading-book"
 CSV_PATH = ROOT + r"\data\claude_articles_deep_index.csv"
+SUMMARIES_PATH = ROOT + r"\data\claude_articles_deep_summaries.json"
 SITEMAP_PATH = ROOT + r"\sitemap.xml"
 OUT_HTML = r"C:\Users\ityshchenko\Desktop\claude-articles-priority-dashboard.html"
+
+
+def trim(s, n):
+    s = (s or "").strip()
+    return s if len(s) <= n else s[: n - 1].rstrip() + "…"
+
+
+def build_mindmap_index():
+    """Map url -> compact mind-map data pulled from the deep summaries JSON."""
+    with open(SUMMARIES_PATH, encoding="utf-8") as f:
+        records = json.load(f)
+    idx = {}
+    for rec in records:
+        concepts = [
+            {
+                "name": trim(c.get("name"), 48),
+                "definition": trim(c.get("definition"), 160),
+                "why": trim(c.get("why_it_matters"), 160),
+            }
+            for c in (rec.get("core_concepts") or [])[:6]
+        ]
+        sections = [trim(s.get("heading"), 60) for s in (rec.get("section_digest") or [])][:8]
+        idx[rec["url"].strip()] = {
+            "concepts": concepts,
+            "sections": sections,
+            "bottom_line": trim(rec.get("bottom_line"), 240),
+        }
+    return idx
 
 CHAPTER_WEIGHT = {
     "Claude Code & software engineering": 10,
@@ -108,8 +137,16 @@ def main():
     with open(CSV_PATH, encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
 
-    with open(SITEMAP_PATH, encoding="utf-8") as f:
-        sitemap = f.read()
+    try:
+        req = urllib.request.Request("https://claude.com/sitemap.xml",
+                                      headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            sitemap = resp.read().decode("utf-8", errors="ignore")
+        with open(SITEMAP_PATH, "w", encoding="utf-8") as f:
+            f.write(sitemap)
+    except Exception:
+        with open(SITEMAP_PATH, encoding="utf-8") as f:
+            sitemap = f.read()
     sitemap_urls = set(re.findall(
         r"<loc>(https://claude\.com/resources/articles/[^<]+)</loc>", sitemap))
     catalog_urls = set(r["url"].strip() for r in rows)
@@ -181,15 +218,19 @@ def main():
             "Admin features for measuring and reporting on team Claude adoption and spend."),
     }
 
+    mindmap_idx = build_mindmap_index()
+
     out_rows = []
     for r in rows:
         title, date, chapter, category = r["title"], r["date"], r["chapter"], r["category"]
         sc = score_article(title, chapter, category, date)
+        url = r["url"].strip()
+        mm = mindmap_idx.get(url, {"concepts": [], "sections": [], "bottom_line": ""})
         out_rows.append({
             "title": title.strip(), "date": date, "chapter": chapter,
             "category": category, "deep_words": r["deep_words"],
-            "url": r["url"].strip(), "score": sc, "is_new": False,
-            "summary": "",
+            "url": url, "score": sc, "is_new": False,
+            "summary": "", "mindmap": mm,
         })
 
     for u in new_urls:
@@ -198,10 +239,22 @@ def main():
             continue
         title, chapter, category, summary = meta
         sc = score_article(title, chapter, category, "2026-11-10")
+        # No deep-summary JSON exists yet for brand-new articles, so build a
+        # minimal single-level mind map straight from the fetched summary,
+        # splitting on sentence boundaries (never inside parentheses).
+        no_parens = re.sub(r"\([^)]*\)", "", summary)
+        clauses = [c.strip() for c in re.split(r"(?<=[.;])\s+", no_parens) if c.strip()]
+        if len(clauses) < 2:
+            clauses = [summary]
+        mm = {
+            "concepts": [{"name": trim(c, 55), "definition": "", "why": ""} for c in clauses[:5]],
+            "sections": [],
+            "bottom_line": summary,
+        }
         out_rows.append({
             "title": title, "date": "2026-11 (new)", "chapter": chapter,
             "category": category, "deep_words": "", "url": u,
-            "score": sc, "is_new": True, "summary": summary,
+            "score": sc, "is_new": True, "summary": summary, "mindmap": mm,
         })
 
     urls = [r["url"] for r in out_rows]
@@ -277,6 +330,29 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   a.title-link:hover{color:var(--accent);text-decoration:underline;}
   .summary{color:var(--muted);font-size:12px;margin-top:3px;max-width:520px;}
   .count{font-size:12px;color:var(--muted);margin:10px 0;}
+  .map-btn{background:var(--panel2);color:var(--accent);border:1px solid var(--border);border-radius:6px;padding:4px 9px;font-size:11px;cursor:pointer;white-space:nowrap;}
+  .map-btn:hover{background:var(--accent);color:#1a1a1a;}
+  .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:50;align-items:center;justify-content:center;}
+  .overlay.open{display:flex;}
+  .modal{background:var(--panel);border:1px solid var(--border);border-radius:14px;width:min(960px,92vw);max-height:88vh;overflow:auto;padding:22px 26px;}
+  .modal h2{margin:0 0 4px;font-size:18px;}
+  .modal .modal-sub{color:var(--muted);font-size:12px;margin-bottom:14px;}
+  .modal .close-x{float:right;cursor:pointer;color:var(--muted);font-size:20px;line-height:1;}
+  .modal .close-x:hover{color:var(--text);}
+  #mapSvgWrap{width:100%;display:flex;justify-content:center;}
+  .mm-node{cursor:pointer;}
+  .mm-node circle{fill:var(--panel2);stroke:var(--accent);stroke-width:1.5;}
+  .mm-node:hover circle{fill:var(--accent);}
+  .mm-node text{fill:var(--text);font-size:11px;pointer-events:none;}
+  .mm-center circle{fill:var(--accent);stroke:none;}
+  .mm-center text{fill:#1a1a1a;font-weight:700;font-size:12px;}
+  .mm-line{stroke:var(--border);stroke-width:1.5;}
+  .detail-panel{margin-top:16px;background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;font-size:13px;min-height:40px;}
+  .detail-panel h4{margin:0 0 6px;color:var(--accent);font-size:13px;}
+  .detail-panel p{margin:4px 0;color:var(--text);}
+  .detail-panel .why{color:var(--muted);font-size:12px;}
+  .bottom-line{margin-top:14px;font-size:12px;color:var(--muted);border-top:1px solid var(--border);padding-top:10px;}
+  .bottom-line b{color:var(--text);}
 </style>
 </head>
 <body>
@@ -306,11 +382,22 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         <th data-key="chapter">Chapter</th>
         <th data-key="date">Date</th>
         <th data-key="ok">Link</th>
+        <th>Mind map</th>
       </tr>
     </thead>
     <tbody id="rows"></tbody>
   </table>
 </main>
+<div class="overlay" id="mapOverlay">
+  <div class="modal">
+    <span class="close-x" id="mapClose">&times;</span>
+    <h2 id="mapTitle"></h2>
+    <div class="modal-sub" id="mapSub"></div>
+    <div id="mapSvgWrap"></div>
+    <div class="detail-panel" id="mapDetail">Click a concept bubble to see what it means.</div>
+    <div class="bottom-line" id="mapBottomLine"></div>
+  </div>
+</div>
 <script>
 const DATA = __DATA__;
 let sortKey = 'score', sortDir = -1;
@@ -354,16 +441,77 @@ function render(){
       <td><span class="chapter-tag">${escapeHtml(d.chapter||'-')}</span><br><span class="chapter-tag">${escapeHtml(d.category||'')}</span></td>
       <td>${d.date}</td>
       <td>${d.ok? '<span class="b-ok">opens</span>' : '<span class="b-bad">broken</span>'}</td>
+      <td><button class="map-btn" data-url="${escapeHtml(d.url)}">Mind map</button></td>
     </tr>`).join('');
 
   const stats = DATA.length + ' total - ' + DATA.filter(d=>d.is_new).length + ' new - ' + DATA.filter(d=>!d.ok).length + ' broken';
   document.getElementById('stats').textContent = stats;
 
   const top = [...DATA].sort((a,b)=>b.score-a.score).slice(0,15);
-  document.getElementById('topPicks').innerHTML = top.map(d=>`<li><a href="${d.url}" target="_blank" rel="noopener">${d.is_new?'[NEW] ':''}${escapeHtml(d.title)}</a> <span class="chapter-tag">- ${escapeHtml(d.chapter)} - score ${d.score}</span></li>`).join('');
+  document.getElementById('topPicks').innerHTML = top.map(d=>`<li><a href="${d.url}" target="_blank" rel="noopener">${d.is_new?'[NEW] ':''}${escapeHtml(d.title)}</a> <span class="chapter-tag">- ${escapeHtml(d.chapter)} - score ${d.score}</span> <button class="map-btn" data-url="${escapeHtml(d.url)}">Mind map</button></li>`).join('');
+
+  document.querySelectorAll('.map-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const d = DATA.find(x=>x.url === btn.dataset.url);
+      if(d) openMindMap(d);
+    });
+  });
 }
 
 function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ---- Mind map modal ----
+const overlay = document.getElementById('mapOverlay');
+document.getElementById('mapClose').addEventListener('click', ()=> overlay.classList.remove('open'));
+overlay.addEventListener('click', e=>{ if(e.target === overlay) overlay.classList.remove('open'); });
+
+function openMindMap(d){
+  document.getElementById('mapTitle').textContent = (d.is_new?'[NEW] ':'') + d.title;
+  document.getElementById('mapSub').textContent = (d.chapter||'') + (d.category?' · '+d.category:'') + ' · ' + d.date;
+  document.getElementById('mapBottomLine').innerHTML = d.mindmap && d.mindmap.bottom_line
+    ? '<b>Bottom line:</b> ' + escapeHtml(d.mindmap.bottom_line) : '';
+  document.getElementById('mapDetail').textContent = 'Click a concept bubble to see what it means.';
+  renderMindMapSvg(d);
+  overlay.classList.add('open');
+}
+
+function renderMindMapSvg(d){
+  const wrap = document.getElementById('mapSvgWrap');
+  const concepts = (d.mindmap && d.mindmap.concepts) || [];
+  const W = 860, H = 460, cx = W/2, cy = H/2, R = 170;
+  const n = Math.max(concepts.length, 1);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:860px;height:auto;">`;
+  concepts.forEach((c, i)=>{
+    const angle = (2*Math.PI*i/n) - Math.PI/2;
+    const x = cx + R*Math.cos(angle), y = cy + R*Math.sin(angle);
+    svg += `<line class="mm-line" x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" />`;
+  });
+  svg += `<g class="mm-center"><circle cx="${cx}" cy="${cy}" r="56" /><foreignObject x="${cx-50}" y="${cy-30}" width="100" height="60"><div xmlns="http://www.w3.org/1999/xhtml" style="font-size:11px;font-weight:700;color:#1a1a1a;text-align:center;line-height:1.2;">${escapeHtml(truncateWords(d.title, 10))}</div></foreignObject></g>`;
+  concepts.forEach((c, i)=>{
+    const angle = (2*Math.PI*i/n) - Math.PI/2;
+    const x = cx + R*Math.cos(angle), y = cy + R*Math.sin(angle);
+    svg += `<g class="mm-node" data-idx="${i}"><circle cx="${x}" cy="${y}" r="42" /><foreignObject x="${x-38}" y="${y-26}" width="76" height="52"><div xmlns="http://www.w3.org/1999/xhtml" style="font-size:10.5px;color:inherit;text-align:center;line-height:1.2;">${escapeHtml(c.name)}</div></foreignObject></g>`;
+  });
+  svg += `</svg>`;
+  if(!concepts.length){
+    svg = '<div style="color:var(--muted);font-size:13px;padding:30px;text-align:center;">No structured concept breakdown yet for this article. Read the short summary above, or open the source link.</div>';
+  }
+  wrap.innerHTML = svg;
+  wrap.querySelectorAll('.mm-node').forEach(g=>{
+    g.addEventListener('click', ()=>{
+      const c = concepts[+g.dataset.idx];
+      const panel = document.getElementById('mapDetail');
+      panel.innerHTML = `<h4>${escapeHtml(c.name)}</h4>` +
+        (c.definition ? `<p>${escapeHtml(c.definition)}</p>` : '') +
+        (c.why ? `<p class="why">Why it matters: ${escapeHtml(c.why)}</p>` : '');
+    });
+  });
+}
+
+function truncateWords(s, maxWords){
+  const parts = (s||'').split(' ');
+  return parts.length <= maxWords ? s : parts.slice(0, maxWords).join(' ') + '…';
+}
 
 document.getElementById('search').addEventListener('input', e=>{ filters.q = e.target.value; render(); });
 chapterSel.addEventListener('change', e=>{ filters.chapter = e.target.value; render(); });

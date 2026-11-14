@@ -11,3 +11,5 @@ article_bodies.jsonl
 source_batches/
 deep_batches/
 chrome-*/
+
+sitemap.xml
